@@ -1,4 +1,4 @@
-// script.js
+// script.js v2
 
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm";
 
