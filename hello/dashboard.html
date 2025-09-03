@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Device Information Collector</title>
+    <title>Device Information Collector v2</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Supabase Client Library -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -127,7 +127,6 @@
                 data.browser_fingerprint = simpleHash(fingerprintString);
                 
                 // 13. Clipboard Content - NOTE: Requires user interaction for security.
-                // This will be left null unless you implement a button for the user to click.
                 data.clipboard_content = null;
 
                 // 14. Mouse Movements - NOTE: This requires event listeners. We will skip for a single snapshot.
@@ -152,12 +151,16 @@
                 updateStatus('Checking permissions...');
                 try {
                     const webcam_permission = await navigator.permissions.query({ name: 'camera' });
-                    data.webcam_access = webcam_permission.state; // 'granted', 'prompt', or 'denied'
-                     const mic_permission = await navigator.permissions.query({ name: 'microphone' });
-                    data.microphone_access = mic_permission.state;
+                    // FIX: Convert permission state string ('granted', 'prompt', 'denied') to a boolean
+                    data.webcam_access = webcam_permission.state === 'granted'; 
+                    
+                    const mic_permission = await navigator.permissions.query({ name: 'microphone' });
+                    // FIX: Convert permission state string to a boolean
+                    data.microphone_access = mic_permission.state === 'granted';
                 } catch (e) {
-                    data.webcam_access = 'Unsupported';
-                    data.microphone_access = 'Unsupported';
+                    // FIX: Default to false if permission API is unsupported or fails
+                    data.webcam_access = false;
+                    data.microphone_access = false;
                 }
 
                 // 20. Fingerprinting Flag
@@ -193,7 +196,6 @@
             } catch (error) {
                 console.error('Error:', error);
                 updateStatus(`Error: ${error.message}`);
-                // In case of error, show a more user-friendly message
                 document.querySelector('h1').textContent = 'An Error Occurred';
                 document.querySelector('p').textContent = 'Could not save the device information. Please check the console for details.';
                 statusElement.classList.remove('text-indigo-300');
@@ -206,3 +208,4 @@
     </script>
 </body>
 </html>
+
